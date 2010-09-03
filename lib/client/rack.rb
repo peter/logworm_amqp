@@ -5,8 +5,8 @@ module Logworm
 
     def initialize(app, options = {})
       @app = app
-      
       @log_requests = (options[:donot_log_requests].nil? or options[:donot_log_requests] != true)
+      @log_listener = options[:log_listener]
       @log_headers  = (options[:log_headers] and options[:log_headers] == true)
       @log_apache   = (options[:log_apache] and options[:log_apache] == true)
       @log_envs     = options[:log_environments] || ["production"]
@@ -30,6 +30,11 @@ module Logworm
     end
     
     private 
+    def call_log_listener(options = {})
+      return unless @log_listener
+      @log_listener.call(options)
+    end
+    
     def log_request(env, status, response_headers, appTime)
       method       = env['REQUEST_METHOD']
       path         = env['PATH_INFO'] || env['REQUEST_PATH'] || "/"
@@ -52,11 +57,13 @@ module Logworm
 
       begin 
         Timeout::timeout(@timeout) { 
-          Logger.flush
+          count, elapsed_time = Logger.flush
+          call_log_listener(:result => :success, :count => count, :elapsed_time => elapsed_time)
         } 
       rescue Exception => e 
         # Ignore --nothing we can do. The list of logs may (and most likely will) be preserved for the next request
         $stderr.puts("logworm call failed: #{e}")
+        call_log_listener(:result => :failure, :exception => e)
       end
     end
 
